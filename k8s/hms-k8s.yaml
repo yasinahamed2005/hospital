@@ -1,0 +1,197 @@
+# =========================
+# Namespace
+# =========================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hms
+
+---
+# =========================
+# MySQL PVC
+# =========================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: hms
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# =========================
+# MySQL Deployment
+# =========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: hms
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_DATABASE
+              value: hmsdb
+            - name: MYSQL_ROOT_PASSWORD
+              value: root
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+
+---
+# =========================
+# Backend Deployment
+# =========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hms-backend
+  namespace: hms
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hms-backend
+  template:
+    metadata:
+      labels:
+        app: hms-backend
+    spec:
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox
+          command: ['sh', '-c', 'until nc -z mysql 3306; do echo waiting for mysql; sleep 2; done;']
+      containers:
+        - name: hms-backend
+          image: hms-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://mysql:3306/hmsdb
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: root
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update
+            - name: SPRING_JPA_DATABASE_PLATFORM
+              value: org.hibernate.dialect.MySQL8Dialect
+
+---
+# =========================
+# ConfigMap for Frontend
+# =========================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hms-frontend-config
+  namespace: hms
+data:
+  REACT_APP_BACKEND_URL: "http://hms-backend:8081"
+
+---
+# =========================
+# Frontend Deployment
+# =========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hms-frontend
+  namespace: hms
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hms-frontend
+  template:
+    metadata:
+      labels:
+        app: hms-frontend
+    spec:
+      containers:
+        - name: hms-frontend
+          image: hms-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080    # Tomcat port in your frontend image
+          env:
+            - name: REACT_APP_BACKEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: hms-frontend-config
+                  key: REACT_APP_BACKEND_URL
+
+---
+# =========================
+# MySQL Service
+# =========================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: hms
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+
+---
+# =========================
+# Backend Service
+# =========================
+apiVersion: v1
+kind: Service
+metadata:
+  name: hms-backend
+  namespace: hms
+spec:
+  type: ClusterIP     # internal only – frontend calls this
+  selector:
+    app: hms-backend
+  ports:
+    - port: 8081
+      targetPort: 8081
+
+---
+# =========================
+# Frontend Service
+# =========================
+apiVersion: v1
+kind: Service
+metadata:
+  name: hms-frontend
+  namespace: hms
+spec:
+  type: NodePort
+  selector:
+    app: hms-frontend
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30082   # access via http://localhost:30082/

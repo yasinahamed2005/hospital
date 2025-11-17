@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  hms-backend:
+    container_name: hms-backend
+    build:
+      context: ./hospital-backend-main
+      dockerfile: Dockerfile
+    image: hms-backend:latest
+    ports:
+      - "8081:8081"   # host:container
+    environment:
+      # example env vars – adjust as needed
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: hms
+      DB_USER: hms_user
+      DB_PASSWORD: hms_password
+    networks:
+      - hms-net
+    # depends_on:
+    #   - db
+
+  hms-frontend:
+    container_name: hms-frontend
+    build:
+      context: ./hospital-frontend-main
+      dockerfile: Dockerfile
+    image: hms-frontend:latest
+    ports:
+      - "8082:8080"   # Tomcat listens on 8080 inside container
+    depends_on:
+      - hms-backend
+    networks:
+      - hms-net
+
+  # Optional: database service example (if you add one)
+  # db:
+  #   image: mysql:8
+  #   environment:
+  #     MYSQL_DATABASE: hms
+  #     MYSQL_USER: hms_user
+  #     MYSQL_PASSWORD: hms_password
+  #     MYSQL_ROOT_PASSWORD: root_password
+  #   volumes:
+  #     - db-data:/var/lib/mysql
+  #   ports:
+  #     - "3306:3306"
+  #   networks:
+  #     - hms-net
+
+networks:
+  hms-net:
+
+# volumes:
+#   db-data:
